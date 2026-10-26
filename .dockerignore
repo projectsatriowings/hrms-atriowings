@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+.git
+.github
+qa-shots
+*.log
+.env
+.env.local
+*.zip
+.DS_Store
+coverage

@@ -1,0 +1,23 @@
+# Caddyfile — one-origin reverse proxy for the Attenza compose stack.
+# The browser loads the web app AND calls the API from this single origin,
+# so the SameSite=Lax refresh cookie (set by the API) is sent back on every
+# API call. Without this, web on :3000 and API on :4000 are different
+# origins and the cookie path breaks in subtle, browser-dependent ways.
+#
+# Routing (paths are passed through unchanged — the API's global prefix is
+# /api/v1, so /api/v1/health reaches the API as /api/v1/health):
+#   /api/v1/*  -> api:4000   (health: GET /api/v1/health)
+#   everything else -> web:3000
+# Caddy matches the more specific /api/v1/* handle first; the bare handle
+# is the fallback. No path rewriting, no CORS workaround needed.
+
+:80 {
+	# API first: longest-prefix match wins, but keep the order explicit.
+	handle /api/v1/* {
+		reverse_proxy api:4000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}

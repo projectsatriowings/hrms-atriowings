@@ -1,0 +1,88 @@
+# Attenza deployment story (review fix B1): one compose file, four services.
+#   docker compose up --build
+# Public entry point (ONE origin — see Caddyfile):
+#   http://localhost:8080        (web; API at /api/v1, health: GET /api/v1/health)
+# Only the proxy is published on the host. The api and web services keep
+# their internal ports (4000 / 3000) but are reachable only inside the
+# compose network, so browsers never talk to localhost:4000 directly and
+# the SameSite=Lax refresh cookie works.
+# The API container runs `prisma migrate deploy` before starting, so a fresh
+# Postgres volume is migrated automatically. Set the secrets in a .env file
+# next to this compose file (never commit it):
+#   POSTGRES_PASSWORD=<strong password>
+#   JWT_ACCESS_SECRET=<random hex, see apps/api/.env.example>
+#   BANK_ENCRYPTION_KEY=<64 hex chars, production only>
+# Optional overrides:
+#   NEXT_PUBLIC_API_URL=<public API base baked into the web bundle at build
+#     time; default /api/v1 = same-origin proxy path. Only change this if
+#     the API is served from a different public origin than the web app.>
+#   FRONTEND_URL=<public web origin for API CORS; default http://localhost:8080>
+# Postgres major-version note: the image is postgres:18-alpine, matching
+# README.md. A pgdata volume created by an older major version (e.g. 16)
+# will NOT auto-upgrade — for an existing volume, dump from the old version
+# and restore into a fresh 18 volume instead of reusing it.
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: attenza
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: attenza
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attenza -d attenza"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: "4000"
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      DATABASE_URL: postgres://attenza:${POSTGRES_PASSWORD}@postgres:5432/attenza?schema=public
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:?Set JWT_ACCESS_SECRET in .env}
+      BANK_ENCRYPTION_KEY: ${BANK_ENCRYPTION_KEY:-}
+    # Internal only: published nowhere on the host (see proxy below).
+    expose:
+      - "4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # From /app/apps/api, ../../node_modules is /app/node_modules.
+    # Runs as the image's non-root `node` user (see Dockerfile).
+    command: >
+      sh -c "cd apps/api && ../../node_modules/.bin/prisma migrate deploy
+      && node dist/main.js"
+
+  web:
+    build:
+      context: .
+      args:
+        # Same-origin API base baked into the browser bundle at build time.
+        # /api/v1 goes through the proxy, so no localhost:4000 is baked in.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
+    environment:
+      NODE_ENV: production
+    # Internal only: published nowhere on the host (see proxy below).
+    expose:
+      - "3000"
+    depends_on:
+      - api
+    command: sh -c "cd apps/web && ../../node_modules/.bin/next start -p 3000"
+
+  # One-origin reverse proxy: the ONLY publicly published service.
+  proxy:
+    image: caddy:2-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      - api
+      - web
+
+volumes:
+  pgdata:

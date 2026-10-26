@@ -1,0 +1,23 @@
+{
+  "description": "Premium HRMS for Atriowings Technologies — Next.js + NestJS + PostgreSQL + Prisma",
+  "engines": {
+    "node": ">=20"
+  },
+  "name": "hrms-pro",
+  "private": true,
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev:api": "pnpm --filter @hrms/api dev",
+    "dev:web": "pnpm --filter @hrms/web dev",
+    "lint": "eslint \"apps/**/*.ts\" \"apps/**/*.tsx\" \"packages/**/*.ts\"",
+    "test": "pnpm --filter @hrms/api test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "version": "0.1.0",
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "typescript-eslint": "^8.72.0"
+  }
+}

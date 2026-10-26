@@ -1,0 +1,15 @@
+# Secrets and local env — never commit these. (The previously delivered
+# hrms-pro.zip wrongly contained apps/api/.env and apps/web/.env.local;
+# the secrets in that zip were rotated on 2026-10-21 and must be treated
+# as compromised.)
+.env
+.env.local
+.env.*.local
+# Build / install output
+node_modules/
+dist/
+.next/
+out/
+*.tsbuildinfo
+# OS / editor
+.DS_Store

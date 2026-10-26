@@ -1,0 +1,270 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Semantic design tokens (Direction A — Modern SaaS) ── */
+:root {
+  color-scheme: light;
+  --canvas: 246 247 251;
+  --surface: 255 255 255;
+  --soft: 241 243 249;
+  --line: 233 236 243;
+  --ink: 17 24 39;
+  --inksoft: 31 41 55;
+  --muted: 107 114 128;
+  --faint: 156 163 175;
+  --accent: 79 70 229;
+  --accent-2: 124 58 237;
+  --glow: rgba(79, 70, 229, 0.35);
+  --accent-hover: 67 56 202;
+  --accent-soft: 238 240 254;
+  --accent-ink: 67 56 202;
+  --success: 5 150 105;
+  --success-soft: 236 253 245;
+  --warning: 217 119 6;
+  --warning-soft: 255 251 235;
+  --danger: 225 29 72;
+  --danger-soft: 255 241 242;
+  --info: 37 99 235;
+  --info-soft: 239 246 255;
+}
+
+.dark {
+  color-scheme: dark;
+  --canvas: 10 15 30;
+  --surface: 17 26 46;
+  --soft: 26 35 64;
+  --line: 35 46 77;
+  --ink: 233 237 247;
+  --inksoft: 198 205 224;
+  --muted: 147 160 188;
+  --faint: 93 107 138;
+  --accent: 129 140 248;
+  --accent-2: 167 139 250;
+  --glow: rgba(129, 140, 248, 0.45);
+  --accent-hover: 165 180 252;
+  --accent-soft: 30 38 80;
+  --accent-ink: 199 210 254;
+  --success: 52 211 153;
+  --success-soft: 14 42 35;
+  --warning: 251 191 36;
+  --warning-soft: 46 35 16;
+  --danger: 251 113 133;
+  --danger-soft: 46 20 32;
+  --info: 96 165 250;
+  --info-soft: 20 36 62;
+}
+
+/* ── Brand utilities ── */
+/* Tokens are RGB triplets (for rgb(var(--x) / alpha) colors), so wrap them here. */
+.bg-brand-gradient {
+  background-image: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-2)));
+}
+.shadow-glow {
+  box-shadow: 0 8px 24px -8px var(--glow);
+}
+.glass-card {
+  background-color: rgb(var(--surface) / 0.8);
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Smooth theme cross-fade on chrome surfaces */
+body,
+.theme-fade {
+  transition:
+    background-color 0.35s ease,
+    border-color 0.35s ease,
+    color 0.35s ease;
+}
+
+/* Visible indigo focus ring everywhere */
+:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+/* Slim, subtle scrollbars */
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+.dark *::-webkit-scrollbar-thumb {
+  background: #2a3654;
+}
+
+/* Native date inputs match h-10 controls */
+input[type="date"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.55;
+}
+.dark input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.7);
+}
+
+/* ── Motion ── */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes shimmer {
+    from {
+      background-position: 200% 0;
+    }
+    to {
+      background-position: -200% 0;
+    }
+  }
+  /* Aurora drift for decorative gradient blobs (login, welcome band) */
+  @keyframes drift {
+    from {
+      transform: translate(0, 0) scale(1);
+    }
+    to {
+      transform: translate(56px, -36px) scale(1.14);
+    }
+  }
+  /* Expanding ring around the check-in button until the user checks in */
+  @keyframes pulse-ring {
+    0% {
+      box-shadow: 0 0 0 0 rgb(var(--accent) / 0.45);
+    }
+    70% {
+      box-shadow: 0 0 0 14px rgb(var(--accent) / 0);
+    }
+    100% {
+      box-shadow: 0 0 0 0 rgb(var(--accent) / 0);
+    }
+  }
+  /* Dialogs & dropdowns: gentle scale + fade entrance */
+  @keyframes pop {
+    from {
+      opacity: 0;
+      transform: scale(0.97) translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  /* Table rows settle in softly on load */
+  tbody tr {
+    animation: fade-in 0.25s ease-out both;
+  }
+}
+
+.animate-rise {
+  animation: rise 0.35s ease-out both;
+}
+.animate-rise-fast {
+  animation: rise 0.2s ease-out both;
+}
+.animate-pop {
+  animation: pop 0.18s ease-out both;
+}
+.animate-drift {
+  animation: drift 20s ease-in-out infinite alternate;
+}
+.animate-drift-slow {
+  animation: drift 26s ease-in-out infinite alternate-reverse;
+}
+.animate-pulse-ring {
+  animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+/* Staggered fade-up for card grids (delays capped at 8 children) */
+.animate-stagger > * {
+  animation: rise 0.4s ease-out both;
+}
+.animate-stagger > *:nth-child(1) {
+  animation-delay: 0ms;
+}
+.animate-stagger > *:nth-child(2) {
+  animation-delay: 60ms;
+}
+.animate-stagger > *:nth-child(3) {
+  animation-delay: 120ms;
+}
+.animate-stagger > *:nth-child(4) {
+  animation-delay: 180ms;
+}
+.animate-stagger > *:nth-child(5) {
+  animation-delay: 240ms;
+}
+.animate-stagger > *:nth-child(6) {
+  animation-delay: 300ms;
+}
+.animate-stagger > *:nth-child(7) {
+  animation-delay: 360ms;
+}
+.animate-stagger > *:nth-child(8) {
+  animation-delay: 420ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media print {
+  /* Payslips / invoices must always print on white */
+  :root,
+  .dark {
+    color-scheme: light;
+    --canvas: 246 247 251;
+    --surface: 255 255 255;
+    --soft: 241 243 249;
+    --line: 233 236 243;
+    --ink: 17 24 39;
+    --inksoft: 31 41 55;
+    --muted: 107 114 128;
+    --faint: 156 163 175;
+    --accent: 79 70 229;
+    --accent-2: 124 58 237;
+    --glow: rgba(79, 70, 229, 0.35);
+    --accent-hover: 67 56 202;
+    --accent-soft: 238 240 254;
+    --accent-ink: 67 56 202;
+    --success: 5 150 105;
+    --success-soft: 236 253 245;
+    --warning: 217 119 6;
+    --warning-soft: 255 251 235;
+    --danger: 225 29 72;
+    --danger-soft: 255 241 242;
+    --info: 37 99 235;
+    --info-soft: 239 246 255;
+  }
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+}

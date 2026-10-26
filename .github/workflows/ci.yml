@@ -1,0 +1,37 @@
+# Attenza CI skeleton (review fix B4): install, typechecks, unit tests, and
+# both production builds. No deployment step yet — that is a separate
+# decision (see README "Deployment").
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 10
+      - name: Install
+        run: pnpm install --frozen-lockfile
+      - name: Build shared + generate Prisma client
+        run: |
+          pnpm --filter @hrms/shared build
+          pnpm --filter @hrms/api exec prisma generate
+      - name: Typecheck
+        run: pnpm -r typecheck
+      - name: Lint
+        run: pnpm lint
+      - name: Unit tests
+        run: pnpm --filter @hrms/api test
+      - name: Production builds
+        run: |
+          pnpm --filter @hrms/api build
+          pnpm --filter @hrms/web build

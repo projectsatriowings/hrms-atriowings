@@ -1,0 +1,693 @@
+// HRMS Pro — PostgreSQL schema (Prisma)
+// Company boundary: every company-owned table carries companyId.
+// Money: Decimal. Time: timestamptz stored in UTC; work_date is a calendar
+// date in the company's timezone. Audit logs are append-only.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ── Enums ──────────────────────────────────────────────────────────────
+
+enum Role {
+  employee
+  hr
+  md
+}
+
+enum UserStatus {
+  active
+  invited
+  disabled
+}
+
+enum EmploymentStatus {
+  active
+  on_notice
+  exited
+}
+
+enum AttendanceStatus {
+  present
+  absent
+  half_day
+  on_leave
+  weekly_off
+  holiday
+}
+
+enum AttendanceSource {
+  self
+  correction
+  import
+  biometric
+}
+
+enum LeaveRequestStatus {
+  pending
+  approved
+  rejected
+  cancelled
+}
+
+enum LeaveLedgerEntryType {
+  allocation
+  usage
+  adjustment
+  carry_forward
+}
+
+enum PayrollPeriodStatus {
+  draft
+  in_review
+  approved
+  finalized
+}
+
+enum InvoiceStatus {
+  draft
+  issued
+  partially_paid
+  paid
+  overdue
+}
+
+enum QuotationStatus {
+  draft
+  sent
+  accepted
+  rejected
+  expired
+  converted
+}
+
+// ── Company & auth ─────────────────────────────────────────────────────
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  timezone  String   @default("Asia/Kolkata")
+  logoUrl   String?
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  users              User[]
+  departments        Department[]
+  designations       Designation[]
+  employees          Employee[]
+  attendancePolicies AttendancePolicy[]
+  biometricDevices   BiometricDevice[]
+  wfhRequests        WfhRequest[]
+  wfhDays            WfhDay[]
+  holidays           Holiday[]
+  attendanceRecords  AttendanceRecord[]
+  leaveTypes         LeaveType[]
+  leaveLedgers       LeaveLedger[]
+  leaveRequests      LeaveRequest[]
+  payrollPeriods     PayrollPeriod[]
+  customers          Customer[]
+  invoices           Invoice[]
+  quotations         Quotation[]
+  auditLogs          AuditLog[]
+}
+
+model User {
+  id           String     @id @default(cuid())
+  companyId    String
+  company      Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId   String?    @unique
+  employee     Employee?  @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  email        String     @unique
+  passwordHash String
+  role         Role       @default(employee)
+  status       UserStatus @default(active)
+  mustChangePassword     Boolean   @default(false)
+  tempPasswordExpiresAt  DateTime?
+  failedLoginCount       Int       @default(0)
+  lockedUntil            DateTime?
+  mfaEnabled             Boolean   @default(false)
+  mfaSecret              String?
+  mfaRecoveryCodes       Json?
+  passwordResetTokenHash String?   @unique
+  passwordResetExpiresAt DateTime?
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  sessions AuthSession[]
+
+  @@index([companyId, role])
+}
+
+model AuthSession {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  ip               String?
+  userAgent        String?
+  createdAt        DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ── Organization ───────────────────────────────────────────────────────
+
+model Department {
+  id              String   @id @default(cuid())
+  companyId       String
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name            String
+  headEmployeeId  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employees Employee[]
+
+  @@unique([companyId, name])
+}
+
+model Designation {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title     String
+  level     Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  employees Employee[]
+
+  @@unique([companyId, title])
+}
+
+// ── Employees ──────────────────────────────────────────────────────────
+
+model Employee {
+  id               String           @id @default(cuid())
+  companyId        String
+  company          Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeCode     String
+  fullName         String
+  workEmail        String
+  phone            String?
+  joiningDate      DateTime         @db.Date
+  departmentId     String?
+  department       Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  designationId    String?
+  designation      Designation?     @relation(fields: [designationId], references: [id], onDelete: SetNull)
+  managerId        String?
+  manager          Employee?        @relation("ReportsTo", fields: [managerId], references: [id], onDelete: SetNull)
+  reports          Employee[]       @relation("ReportsTo")
+  employmentStatus EmploymentStatus @default(active)
+  employmentType   String           @default("full_time")
+  dateOfExit       DateTime?        @db.Date
+  pfApplicable     Boolean?
+  esiApplicable    Boolean?
+  tdsDeductedYtd   Decimal          @db.Decimal(12, 2) @default(0)
+  // TDS regime override for this employee: "old" | "new". Null = use the
+  // company default (Company.settings.statutory.tdsRegime), else "new".
+  taxRegime        String?
+  taxDeclarations  PayrollTaxDeclaration[]
+  emergencyContact Json?
+  address          Json?
+  bankDetails      Json?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  user             User?
+  salaryStructures SalaryStructure[]
+  attendanceRecords AttendanceRecord[]
+  biometricMappings BiometricMapping[]
+  wfhRequests      WfhRequest[]
+  leaveLedgers     LeaveLedger[]
+  leaveRequests    LeaveRequest[]
+  payrollRecords   PayrollRecord[]
+  payrollAdjustments PayrollAdjustment[]
+
+  @@unique([companyId, employeeCode])
+  @@unique([companyId, workEmail])
+  @@index([companyId, employmentStatus])
+  @@index([companyId, departmentId])
+  @@index([managerId])
+}
+
+model SalaryStructure {
+  id          String   @id @default(cuid())
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  effectiveFrom DateTime @db.Date
+  components  Json     // { basic, hra, allowances: [{label, amount}], deductions: [...], variablePay? }
+  status      String   @default("active") // active | superseded
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@index([employeeId, effectiveFrom])
+}
+
+// ── Attendance ─────────────────────────────────────────────────────────
+
+model AttendancePolicy {
+  id             String   @id @default(cuid())
+  companyId      String
+  company        Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name           String   @default("Default")
+  workStart      String   @default("09:30") // HH:mm in company tz
+  workEnd        String   @default("18:00")
+  graceMinutes   Int      @default(10)
+  weeklyOffs     Int[]    @default([0]) // 0 = Sunday
+  fullDayMinutes Int      @default(480)
+  halfDayMinutes Int      @default(240)
+  isDefault      Boolean  @default(true)
+  // Geofence for location-verified check-ins
+  officeLatitude       Float?
+  officeLongitude      Float?
+  geofenceRadiusMeters Int      @default(200)
+  requireLocation      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([companyId, name])
+}
+
+model Holiday {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  name      String
+  type      String   @default("public") // public | company
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, date])
+}
+
+model AttendanceRecord {
+  id             String           @id @default(cuid())
+  companyId      String
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId     String
+  employee       Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  workDate       DateTime         @db.Date // calendar date in company tz
+  checkInAt      DateTime?
+  checkOutAt     DateTime?
+  status         AttendanceStatus @default(present)
+  lateMinutes    Int              @default(0)
+  workingMinutes Int              @default(0)
+  source         AttendanceSource @default(self)
+  note           String?
+  needsReview    Boolean          @default(false)
+  checkInLat       Float?
+  checkInLng       Float?
+  locationVerified Boolean          @default(false)
+  wfh              Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  corrections AttendanceCorrection[]
+  biometricPunches BiometricPunch[]
+
+  @@unique([employeeId, workDate])
+  @@index([companyId, workDate])
+}
+
+model AttendanceCorrection {
+  id        String   @id @default(cuid())
+  recordId  String
+  record    AttendanceRecord @relation(fields: [recordId], references: [id], onDelete: Cascade)
+  actorId   String
+  before    Json
+  after     Json
+  reason    String
+  createdAt DateTime @default(now())
+
+  @@index([recordId])
+}
+
+model BiometricDevice {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name       String
+  apiKeyHash String
+  status     String   @default("active") // active | disabled
+  lastSeenAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  mappings BiometricMapping[]
+  punches  BiometricPunch[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model BiometricMapping {
+  id           String          @id @default(cuid())
+  deviceId     String
+  device       BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceUserId String
+  employeeId   String
+  employee     Employee        @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  createdAt    DateTime        @default(now())
+
+  @@unique([deviceId, deviceUserId])
+  @@unique([deviceId, employeeId])
+  @@index([deviceId])
+}
+
+model BiometricPunch {
+  id           String          @id @default(cuid())
+  deviceId     String
+  device       BiometricDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceUserId String
+  timestamp    DateTime
+  type         String // in | out
+  lateSync     Boolean @default(false) // true when the punch arrived >24h after it happened (offline device late sync, up to 7 days old)
+  recordId     String?
+  record       AttendanceRecord? @relation(fields: [recordId], references: [id], onDelete: SetNull)
+  createdAt    DateTime @default(now())
+
+  @@unique([deviceId, deviceUserId, timestamp, type])
+  @@index([deviceId, deviceUserId])
+}
+
+model WfhRequest {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId  String
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  date        DateTime @db.Date
+  reason      String?
+  status      String   @default("pending") // pending | approved | rejected
+  decidedById String?
+  decidedAt   DateTime?
+  createdAt   DateTime @default(now())
+
+  @@unique([employeeId, date])
+  @@index([companyId, date])
+}
+
+model WfhDay {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  date      DateTime @db.Date
+  note      String?
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, date])
+}
+
+// ── Leave ──────────────────────────────────────────────────────────────
+
+model LeaveType {
+  id          String   @id @default(cuid())
+  companyId   String
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  code        String   // CL, SL, EL
+  name        String
+  defaultDays Decimal  @db.Decimal(5, 2) @default(0)
+  carryForward Boolean @default(false)
+  maxCarryDays Decimal? @db.Decimal(5, 2)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  ledgers  LeaveLedger[]
+  requests LeaveRequest[]
+
+  @@unique([companyId, code])
+}
+
+model LeaveLedger {
+  id           String               @id @default(cuid())
+  companyId    String
+  company      Company              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee             @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId  String
+  leaveType    LeaveType            @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  year         Int
+  deltaDays    Decimal              @db.Decimal(5, 2)
+  entryType    LeaveLedgerEntryType
+  refRequestId String?
+  note         String?
+  createdById  String?
+  createdAt    DateTime             @default(now())
+
+  @@index([companyId, employeeId, leaveTypeId, year])
+}
+
+model LeaveRequest {
+  id             String             @id @default(cuid())
+  companyId      String
+  company        Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeId     String
+  employee       Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId    String
+  leaveType      LeaveType          @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  fromDate       DateTime           @db.Date
+  toDate         DateTime           @db.Date
+  days           Decimal            @db.Decimal(5, 2)
+  reason         String
+  status         LeaveRequestStatus @default(pending)
+  reviewerId     String?
+  reviewerComment String?
+  decidedAt      DateTime?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@index([companyId, employeeId, status])
+  @@index([companyId, status])
+}
+
+// ── Payroll ────────────────────────────────────────────────────────────
+
+model PayrollPeriod {
+  id         String              @id @default(cuid())
+  companyId  String
+  company    Company             @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  year       Int
+  month      Int // 1-12
+  status     PayrollPeriodStatus @default(draft)
+  lockedAt   DateTime?
+  approvedBy String?
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+
+  records PayrollRecord[]
+  adjustments PayrollAdjustment[]
+
+  @@unique([companyId, year, month])
+}
+
+model PayrollRecord {
+  id              String        @id @default(cuid())
+  periodId        String
+  period          PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeId      String
+  employee        Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  gross           Decimal       @db.Decimal(12, 2)
+  totalDeductions Decimal       @db.Decimal(12, 2)
+  netPay          Decimal       @db.Decimal(12, 2)
+  lopDays         Decimal       @db.Decimal(5, 2) @default(0)
+  paidDays        Decimal       @db.Decimal(5, 2) @default(0)
+  salaryStructureId    String?
+  structureEffectiveFrom DateTime? @db.Date
+  status          String        @default("draft") // draft | approved | finalized
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  components PayrollComponent[]
+
+  @@unique([periodId, employeeId])
+}
+
+model PayrollComponent {
+  id              String        @id @default(cuid())
+  payrollRecordId String
+  payrollRecord   PayrollRecord @relation(fields: [payrollRecordId], references: [id], onDelete: Cascade)
+  componentKey    String // basic, hra, pf_employee, esi_employee, pt, tds, lop...
+  label           String
+  amount          Decimal       @db.Decimal(12, 2)
+  kind            String        // earning | deduction
+
+  @@index([payrollRecordId])
+}
+
+model PayrollAdjustment {
+  id           String        @id @default(cuid())
+  periodId     String
+  period       PayrollPeriod @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  employeeId   String
+  employee     Employee      @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  componentKey String
+  label        String
+  amount       Decimal       @db.Decimal(12, 2)
+  kind         String        // earning | deduction
+  note         String?
+  createdById  String?
+  createdAt    DateTime      @default(now())
+
+  @@index([periodId])
+  @@index([periodId, employeeId])
+}
+
+// ── Payroll tax declarations (old-regime TDS, FY 2025-26) ───────────────
+// One row per employee per financial year (financialYear = FY start year,
+// e.g. 2025 for FY 2025-26). regime "old" | "new" overrides the company
+// default for that employee; the declaration amounts are annual rupees.
+model PayrollTaxDeclaration {
+  id           String   @id @default(cuid())
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  financialYear Int
+  regime       String   @default("new")
+  section80C   Decimal  @db.Decimal(12, 2) @default(0)
+  section80D   Decimal  @db.Decimal(12, 2) @default(0)
+  hraExemption Decimal  @db.Decimal(12, 2) @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([employeeId, financialYear])
+  @@index([financialYear])
+}
+
+// ── Billing (customer invoicing) ───────────────────────────────────────
+
+model Customer {
+  id        String   @id @default(cuid())
+  companyId String
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String
+  gstin     String?
+  email     String?
+  phone     String?
+  address   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  invoices   Invoice[]
+  quotations Quotation[]
+
+  @@index([companyId, name])
+}
+
+model Invoice {
+  id         String        @id @default(cuid())
+  companyId  String
+  company    Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId String
+  customer   Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  invoiceNo  String
+  issueDate  DateTime      @db.Date
+  dueDate    DateTime      @db.Date
+  subtotal   Decimal       @db.Decimal(12, 2)
+  taxTotal   Decimal       @db.Decimal(12, 2)
+  total      Decimal       @db.Decimal(12, 2)
+  amountPaid Decimal       @db.Decimal(12, 2) @default(0)
+  status     InvoiceStatus @default(draft)
+  notes      String?
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  items    InvoiceItem[]
+  payments InvoicePayment[]
+
+  @@unique([companyId, invoiceNo])
+  @@index([companyId, status])
+}
+
+model InvoiceItem {
+  id          String  @id @default(cuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  rate        Decimal @db.Decimal(12, 2)
+  taxRate     Decimal @db.Decimal(5, 2) @default(0) // GST %
+  amount      Decimal @db.Decimal(12, 2)
+
+  @@index([invoiceId])
+}
+
+model InvoicePayment {
+  id        String   @id @default(cuid())
+  invoiceId String
+  invoice   Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  amount    Decimal  @db.Decimal(12, 2)
+  paidOn    DateTime @db.Date
+  method    String   @default("bank_transfer")
+  reference String?
+  createdAt DateTime @default(now())
+
+  @@index([invoiceId])
+}
+
+// ── Audit (append-only) ────────────────────────────────────────────────
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  actorId    String?
+  action     String   // employee.created, attendance.corrected, leave.decided, payroll.approved, ...
+  entityType String
+  entityId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  createdAt  DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([companyId, entityType, entityId])
+}
+
+model Quotation {
+  id                 String          @id @default(cuid())
+  companyId          String
+  company            Company         @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  customerId         String
+  customer           Customer        @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  quotationNo        String
+  issueDate          DateTime        @db.Date
+  validUntil         DateTime        @db.Date
+  subtotal           Decimal         @db.Decimal(12, 2)
+  taxTotal           Decimal         @db.Decimal(12, 2)
+  total              Decimal         @db.Decimal(12, 2)
+  status             QuotationStatus @default(draft)
+  terms              String?
+  notes              String?
+  convertedInvoiceId String?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  items QuotationItem[]
+
+  @@unique([companyId, quotationNo])
+  @@index([companyId, status])
+}
+
+model QuotationItem {
+  id          String    @id @default(cuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description String
+  quantity    Decimal   @db.Decimal(10, 2)
+  rate        Decimal   @db.Decimal(12, 2)
+  taxRate     Decimal   @db.Decimal(5, 2) @default(0) // GST %
+  amount      Decimal   @db.Decimal(12, 2)
+
+  @@index([quotationId])
+}
