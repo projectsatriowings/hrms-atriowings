@@ -36,14 +36,6 @@ pnpm --filter @hrms/web start     # Web on http://localhost:3000
 ./scripts/recover-local.sh
 ```
 
-### Demo logins (seeded)
-
-| Email | Password | Role |
-|---|---|---|
-| admin@atriowings.in | Atriowings@123 | MD |
-| hr@atriowings.in | Atriowings@123 | HR |
-| karthik.n@atriowings.in | Atriowings@123 | Employee |
-
 The seed company is **Atriowings Technologies** (fictional demo data, 12 employees — every employee has a login with the same password, e.g. `karthik.n@atriowings.in`). Replace with real data via the employee import wizard. The `@atriowings.in` email domain in the seed is a placeholder — swap in the real domain before inviting staff.
 
 **New employees:** adding an employee in the app automatically creates their login and shows HR a one-time temporary password to share with them. (Bulk import does not auto-create logins.)
